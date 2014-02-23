@@ -12,11 +12,11 @@ import (
 import cluster "github.com/pforpallav/cluster-server"
 
 type RaftMessage struct {
-	msgType int // 1 for Request, 2 for Response
-	term    int
-	result2 bool
-	id      int
-	callTo  int // 1 for RequestVote, 2 for AppendEntries
+	MsgType int // 1 for Request, 2 for Response
+	Term    int
+	Result2 bool
+	Id      int
+	CallTo  int // 1 for RequestVote, 2 for AppendEntries
 }
 
 type Raft interface {
@@ -84,8 +84,11 @@ func (r RaftBody) isLeader() bool {
 }
 
 func (r RaftBody) RequestVote(term int, candidateId int /*, lastLogIndex int, lastLogTerm int*/) (int, bool) {
-	if r.mode == "F" && r.currentTerm < term {
+	if (r.mode == "F") && (r.currentTerm < term) {
+		r.mode = "F"
 		r.currentTerm = term
+		r.votedFor = candidateId
+		//fmt.Printf("%d voting for %d for %d term\n", r.peerObject.Pid(), candidateId, term)
 		return r.currentTerm, true
 	} else {
 		return r.currentTerm, false
@@ -93,85 +96,161 @@ func (r RaftBody) RequestVote(term int, candidateId int /*, lastLogIndex int, la
 }
 
 func (r RaftBody) AppendEntries(term int, leaderId int /*, prevLogIndex int, entries []interface{}, leaderCommit int*/) (int, bool) {
+	if r.currentTerm < term {
+		r.mode = "F"
+		r.currentTerm = term
+	}
 	return r.currentTerm, true
 }
 
 func (r RaftBody) Runnable(HeartBeat int, LowerElectionTO int, UpperElectionTO int) int {
 
 	totalVotes := 0
+	votesFrom := ""
 	var msg RaftMessage
+
+	seed := int64(100 + r.peerObject.Pid())
+	rand.Seed(seed)
 
 	for {
 		if r.mode == "L" {
 			select {
 			case e := <-r.peerObject.Inbox():
-				msg = e.Msg.(RaftMessage)
-				if msg.term > r.currentTerm {
-					r.mode = "F"
+
+				err := json.Unmarshal(e.Msg.([]byte), &msg)
+				if err != nil {
+					panic(err)
 				}
-				if msg.msgType == 1 {
-					if msg.callTo == 1 {
-						t, vote := r.RequestVote(msg.term, msg.id)
-						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.id, Msg: RaftMessage{2, t, vote, r.peerObject.Pid(), 0}}
-					} else if msg.callTo == 2 {
-						t, taskDone := r.AppendEntries(msg.term, msg.id)
-						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.id, Msg: RaftMessage{2, t, taskDone, r.peerObject.Pid(), 0}}
+
+				if msg.Term > r.currentTerm {
+					r.mode = "F"
+					totalVotes = 0
+					votesFrom = ""
+				}
+
+				if msg.MsgType == 1 {
+					if msg.CallTo == 1 {
+						t, vote := r.RequestVote(msg.Term, msg.Id)
+						b, err := json.Marshal(RaftMessage{2, t, vote, r.peerObject.Pid(), 1})
+						if err != nil {
+							panic(err)
+						}
+						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.Id, Msg: b}
+					} else if msg.CallTo == 2 {
+						t, taskDone := r.AppendEntries(msg.Term, msg.Id)
+						b, err := json.Marshal(RaftMessage{2, t, taskDone, r.peerObject.Pid(), 2})
+						if err != nil {
+							panic(err)
+						}
+						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.Id, Msg: b}
 					}
 				}
+
 			case <-time.After(time.Duration(HeartBeat) * time.Millisecond):
-				r.peerObject.Outbox() <- &cluster.Envelope{Pid: -1, Msg: RaftMessage{1, r.currentTerm, false, r.peerObject.Pid(), 2}}
+				b, err := json.Marshal(RaftMessage{1, r.currentTerm, false, r.peerObject.Pid(), 2})
+				if err != nil {
+					panic(err)
+				}
+				r.peerObject.Outbox() <- &cluster.Envelope{Pid: -1, Msg: b}
 			}
 
 		} else if r.mode == "C" {
+
 			select {
 			case e := <-r.peerObject.Inbox():
-				msg = e.Msg.(RaftMessage)
-				if msg.term > r.currentTerm {
-					r.mode = "F"
+				err := json.Unmarshal(e.Msg.([]byte), &msg)
+				if err != nil {
+					panic(err)
 				}
-				if msg.msgType == 1 {
-					if msg.callTo == 1 {
-						t, vote := r.RequestVote(msg.term, msg.id)
-						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.id, Msg: RaftMessage{2, t, vote, r.peerObject.Pid(), 0}}
-					} else if msg.callTo == 2 {
-						t, taskDone := r.AppendEntries(msg.term, msg.id)
-						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.id, Msg: RaftMessage{2, t, taskDone, r.peerObject.Pid(), 0}}
+
+				if msg.Term > r.currentTerm {
+					r.mode = "F"
+					totalVotes = 0
+					votesFrom = ""
+				}
+
+				if msg.MsgType == 1 {
+					if msg.CallTo == 1 {
+						t, vote := r.RequestVote(msg.Term, msg.Id)
+						b, err := json.Marshal(RaftMessage{2, t, vote, r.peerObject.Pid(), 1})
+						if err != nil {
+							panic(err)
+						}
+						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.Id, Msg: b}
+					} else if msg.CallTo == 2 {
+						t, taskDone := r.AppendEntries(msg.Term, msg.Id)
+						b, err := json.Marshal(RaftMessage{2, t, taskDone, r.peerObject.Pid(), 2})
+						if err != nil {
+							panic(err)
+						}
+						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.Id, Msg: b}
 					}
-				} else if msg.msgType == 2 {
-					if msg.callTo == 1 {
-						if msg.result2 {
+				} else if msg.MsgType == 2 {
+					if msg.CallTo == 1 {
+						if msg.Result2 == true && msg.Term == r.currentTerm {
 							totalVotes++
+							votesFrom += " " + string(msg.Id)
 							if totalVotes > r.NumServers/2 && r.mode == "C" {
 								r.mode = "L"
-								fmt.Printf("Peer %d is now the leader! Yo!\n", r.peerObject.Pid())
+								fmt.Printf("%d \t %d \t %d \t %q\n", r.peerObject.Pid(), r.currentTerm, totalVotes, votesFrom)
 							}
+						}
+					} else if msg.CallTo == 2{
+						if msg.Term > r.currentTerm {
+							r.mode = "F"
+							totalVotes = 0
+							votesFrom = ""
 						}
 					}
 				}
-			case <-time.After(time.Duration(rand.Intn(UpperElectionTO-LowerElectionTO) + LowerElectionTO) * 1000 * time.Nanosecond):
+
+			case <-time.After(time.Duration(rand.Intn(UpperElectionTO-LowerElectionTO) + LowerElectionTO) * time.Millisecond):
 				r.currentTerm++
 				totalVotes = 1
-				r.peerObject.Outbox() <- &cluster.Envelope{Pid: -1, Msg: RaftMessage{1, r.currentTerm, false, r.peerObject.Pid(), 1}}
+				votesFrom = string(r.peerObject.Pid())
+				b, err := json.Marshal(RaftMessage{1, r.currentTerm, false, r.peerObject.Pid(), 1})
+				if err != nil {
+					panic(err)
+				}
+				r.peerObject.Outbox() <- &cluster.Envelope{Pid: -1, Msg: b}
 			}
 		} else if r.mode == "F" {
 			select {
 			case e := <-r.peerObject.Inbox():
-				msg = e.Msg.(RaftMessage)
-				if msg.msgType == 1 {
-					if msg.callTo == 1 {
-						t, vote := r.RequestVote(msg.term, msg.id)
-						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.id, Msg: RaftMessage{2, t, vote, r.peerObject.Pid(), 0}}
-					} else if msg.callTo == 2 {
-						t, taskDone := r.AppendEntries(msg.term, msg.id)
-						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.id, Msg: RaftMessage{2, t, taskDone, r.peerObject.Pid(), 0}}
+				err := json.Unmarshal(e.Msg.([]byte), &msg)
+				if err != nil {
+					panic(err)
+				}
+
+				if msg.MsgType == 1 {
+					if msg.CallTo == 1 {
+						t, vote := r.RequestVote(msg.Term, msg.Id)
+						b, err := json.Marshal(RaftMessage{2, t, vote, r.peerObject.Pid(), 1})
+						if err != nil {
+							panic(err)
+						}
+						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.Id, Msg: b}
+					} else if msg.CallTo == 2 {
+						t, taskDone := r.AppendEntries(msg.Term, msg.Id)
+						b, err := json.Marshal(RaftMessage{2, t, taskDone, r.peerObject.Pid(), 2})
+						if err != nil {
+							panic(err)
+						}
+						r.peerObject.Outbox() <- &cluster.Envelope{Pid: msg.Id, Msg: b}
 					}
 				}
-			case <-time.After(time.Duration(rand.Intn(UpperElectionTO-LowerElectionTO) + LowerElectionTO) * 1000 * time.Nanosecond):
-				fmt.Printf("Peer %d turning to candidate\n", r.peerObject.Pid())
+
+			case <-time.After(time.Duration(rand.Intn(UpperElectionTO-LowerElectionTO) + LowerElectionTO) * time.Millisecond):
+				//fmt.Printf("Peer %d turning to candidate\n", r.peerObject.Pid())
 				r.mode = "C"
 				r.currentTerm++
 				totalVotes = 1
-				r.peerObject.Outbox() <- &cluster.Envelope{Pid: -1, Msg: RaftMessage{1, r.currentTerm, false, r.peerObject.Pid(), 1}}
+				votesFrom = string(r.peerObject.Pid())
+				b, err := json.Marshal(RaftMessage{1, r.currentTerm, false, r.peerObject.Pid(), 1})
+				if err != nil {
+					panic(err)
+				}
+				r.peerObject.Outbox() <- &cluster.Envelope{Pid: -1, Msg: b}
 			}
 		}
 	}
@@ -205,8 +284,6 @@ func AddRaftPeer(id int, config string) Raft {
 	clusterObject := cluster.AddPeer(id, c.ClusterConfig)
 
 	Me := RaftBody{"F", clusterObject, c.NumPeers, 0, 0}
-
-	rand.Seed(100)
 
 	go Me.Runnable(c.HeartBeat, c.LowerElectionTO, c.UpperElectionTO)
 

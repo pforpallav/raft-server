@@ -1,7 +1,7 @@
 {
-	"heartBeat": 15,
-	"lowerElectionTO": 150,
-	"upperElectionTO": 300,
-	"numPeers": 5,
-	"clusterConfig": "config.json"
+	"HeartBeat": 50,
+	"LowerElectionTO": 300,
+	"UpperElectionTO": 600,
+	"NumPeers": 5,
+	"ClusterConfig": "config.json"
 }
