@@ -25,6 +25,10 @@ type Raft interface {
 
 	// The current leader according to this peer
 	isLeader() bool
+
+	// Pause/Unpause - drop messages recieved and to be sent
+	Pause() bool
+	Unpause() bool
 }
 
 //Raft internals
@@ -81,6 +85,14 @@ func (r RaftBody) Term() int {
 
 func (r RaftBody) isLeader() bool {
 	return (r.mode == "L")
+}
+
+func (r RaftBody) Pause() bool {
+	return r.peerObject.Pause()
+}
+
+func (r RaftBody) Unpause() bool {
+	return r.peerObject.Unpause()
 }
 
 func (r RaftBody) RequestVote(term int, candidateId int /*, lastLogIndex int, lastLogTerm int*/) (int, bool) {
@@ -205,6 +217,7 @@ func (r RaftBody) Runnable(HeartBeat int, LowerElectionTO int, UpperElectionTO i
 				}
 
 			case <-time.After(time.Duration(rand.Intn(UpperElectionTO-LowerElectionTO) + LowerElectionTO) * time.Millisecond):
+				//fmt.Printf("Peer %d turning to candidate\n", r.peerObject.Pid())
 				r.currentTerm++
 				totalVotes = 1
 				votesFrom = string(r.peerObject.Pid())

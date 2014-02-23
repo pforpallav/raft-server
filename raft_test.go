@@ -17,5 +17,13 @@ func TestRaft(t *testing.T){
 	for i := 1; i <= NUMPEERS; i++ {
 		PeerArray[i-1] = AddRaftPeer(i, "raftConfig.json")
 	}
+	<-time.After(2 * time.Second)
+
+	for i := 1; i <= NUMPEERS; i++ {
+		PeerArray[i-1].isLeader()
+	}
+	PeerArray[0].Pause()
+	PeerArray[3].Pause()
+	println("Two peers killed!")
 	<-time.After(5 * time.Second)
 }
