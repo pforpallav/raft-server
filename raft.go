@@ -2,7 +2,7 @@ package raft
 
 import (
 	"encoding/json"
-	"fmt"
+	//"fmt"
 	"io/ioutil"
 	"time"
 	"math/rand"
@@ -17,6 +17,12 @@ type RaftMessage struct {
 	Result2 bool
 	Id      int
 	CallTo  int // 1 for RequestVote, 2 for AppendEntries
+}
+
+type LeaderInfo struct {
+	LeaderId int
+	Term int
+	MajorityFrom string
 }
 
 type Raft interface {
@@ -77,6 +83,12 @@ type RaftBody struct {
 
 	// For each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically
 	//matchIndex []int
+}
+
+var LeaderChan chan *LeaderInfo
+
+func init() {
+	LeaderChan = make(chan *LeaderInfo)
 }
 
 func (r RaftBody) Term() int {
@@ -204,10 +216,11 @@ func (r RaftBody) Runnable(HeartBeat int, LowerElectionTO int, UpperElectionTO i
 							votesFrom += " " + string(msg.Id)
 							if totalVotes > r.NumServers/2 && r.mode == "C" {
 								r.mode = "L"
-								fmt.Printf("%d \t %d \t %d \t %q\n", r.peerObject.Pid(), r.currentTerm, totalVotes, votesFrom)
+								//fmt.Printf("%d \t %d \t %d \t %q\n", r.peerObject.Pid(), r.currentTerm, totalVotes, votesFrom)
+								LeaderChan <- &LeaderInfo{r.peerObject.Pid(), r.currentTerm, votesFrom}
 							}
 						}
-					} else if msg.CallTo == 2{
+					} else if msg.CallTo == 2 {
 						if msg.Term > r.currentTerm {
 							r.mode = "F"
 							totalVotes = 0

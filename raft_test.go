@@ -1,7 +1,7 @@
 package raft
 
 import (
-	//"fmt"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -13,17 +13,30 @@ const (
 
 func TestRaft(t *testing.T){
 	var PeerArray [NUMPEERS]Raft
-	println("Leader\tTerm\tVotes\tFrom")
+	println("Leader\tTerm\tVotesFrom")
 	for i := 1; i <= NUMPEERS; i++ {
 		PeerArray[i-1] = AddRaftPeer(i, "raftConfig.json")
 	}
-	<-time.After(2 * time.Second)
+	
+	select{
+		case l := <- LeaderChan:
+			fmt.Printf("%d\t%d\t%q\n", l.LeaderId, l.Term, l.MajorityFrom)
+		case <- time.After(2 * time.Second):
+			t.Error("No leader elected!")
+	}
 
 	for i := 1; i <= NUMPEERS; i++ {
-		PeerArray[i-1].isLeader()
+		if PeerArray[i-1].isLeader() {
+			PeerArray[i-1].Pause()
+			PeerArray[i%5].Pause()
+			println("Two peers ", i-1, " & ", i%5, " cut-off!")
+		}
 	}
-	PeerArray[0].Pause()
-	PeerArray[3].Pause()
-	println("Two peers killed!")
-	<-time.After(5 * time.Second)
+
+	select{
+		case l := <- LeaderChan:
+			fmt.Printf("%d\t%d\t%q\n", l.LeaderId, l.Term, l.MajorityFrom)
+		case <- time.After(2 * time.Second):
+			t.Error("No leader elected!")
+	}
 }
