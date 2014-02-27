@@ -54,14 +54,19 @@ type RaftPeer interface {
 }
 
 type RaftBody struct {
+	// Current mode of operation
 	mode string
 
+	// Cluster object
 	peerObject cluster.Server
 
+	// Total number of peers in the cluster
 	NumServers int
 
+	// Last majority achieved from:
 	votesFrom string
 
+	// Total number of votes recieved till now in C mode
 	totalVotes int
 
 	//----Persistant State----//
@@ -92,10 +97,10 @@ type RaftBody struct {
 	//matchIndex []int
 }
 
-var LeaderChan chan *LeaderInfo
-var LowerElectionTO int
-var UpperElectionTO int
-var HeartBeat int
+var LeaderChan chan *LeaderInfo //Send singnal if a new leader is elected
+var LowerElectionTO int         //Lower Election Timeout
+var UpperElectionTO int         //Upper Election Timeout
+var HeartBeat int               //Heartbeat timeout
 
 func init() {
 	LeaderChan = make(chan *LeaderInfo)
@@ -117,6 +122,7 @@ func (r *RaftBody) Unpause() bool {
 	return r.peerObject.Unpause()
 }
 
+// RPC RequestVote
 func (r *RaftBody) RequestVote(term int, candidateId int /*, lastLogIndex int, lastLogTerm int*/) (int, bool) {
 	if (r.mode == "F") && (r.currentTerm < term) {
 		r.mode = "F"
@@ -131,6 +137,7 @@ func (r *RaftBody) RequestVote(term int, candidateId int /*, lastLogIndex int, l
 	}
 }
 
+// RPC AppendEntries
 func (r *RaftBody) AppendEntries(term int, leaderId int /*, prevLogIndex int, entries []interface{}, leaderCommit int*/) (int, bool) {
 	if r.currentTerm < term {
 		r.mode = "F"
@@ -142,6 +149,7 @@ func (r *RaftBody) AppendEntries(term int, leaderId int /*, prevLogIndex int, en
 	return r.currentTerm, true
 }
 
+// goroutine for sending Heartbeats in L mode
 func Heartbeat(r *RaftBody) {
 	for {
 
@@ -163,6 +171,7 @@ func Heartbeat(r *RaftBody) {
 	}
 }
 
+// goroutine for the raft peer
 func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO int) int {
 
 	r.totalVotes = 0
@@ -170,6 +179,7 @@ func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO i
 	var msg RaftMessage
 
 	for {
+		// Leader "L" mode
 		if r.mode == "L" {
 			select {
 			case e := <-r.peerObject.Inbox():
@@ -185,6 +195,7 @@ func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO i
 					}
 
 					r.mode = "F"
+					r.currentTerm = msg.Term
 					r.totalVotes = 0
 					r.votesFrom = ""
 				}
@@ -210,6 +221,8 @@ func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO i
 
 		} else if r.mode == "C" {
 
+			// Candidate "C" mode
+
 			select {
 			case e := <-r.peerObject.Inbox():
 				err := json.Unmarshal(e.Msg.([]byte), &msg)
@@ -219,6 +232,7 @@ func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO i
 
 				if msg.Term > r.currentTerm {
 					r.mode = "F"
+					r.currentTerm = msg.Term
 					r.totalVotes = 0
 					r.votesFrom = ""
 				}
@@ -259,6 +273,7 @@ func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO i
 					} else if msg.CallTo == 2 {
 						if msg.Term > r.currentTerm {
 							r.mode = "F"
+							r.currentTerm = msg.Term
 							r.totalVotes = 0
 							r.votesFrom = ""
 						}
@@ -268,7 +283,7 @@ func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO i
 				r.currentTerm++
 				r.totalVotes = 1
 				r.votesFrom = string(r.peerObject.Pid())
-				if(DEBUG == 1){
+				if DEBUG == 1 {
 					fmt.Printf("Peer %d turning to candidate for term %d\n", r.peerObject.Pid(), r.currentTerm)
 				}
 
@@ -279,6 +294,9 @@ func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO i
 				r.peerObject.Outbox() <- &cluster.Envelope{Pid: -1, Msg: b}
 			}
 		} else if r.mode == "F" {
+
+			// Follower "F" Mode
+
 			select {
 			case e := <-r.peerObject.Inbox():
 				err := json.Unmarshal(e.Msg.([]byte), &msg)
@@ -309,7 +327,7 @@ func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO i
 				r.currentTerm++
 				r.totalVotes = 1
 				r.votesFrom = string(r.peerObject.Pid())
-				if(DEBUG == 1){
+				if DEBUG == 1 {
 					fmt.Printf("Peer %d turning to candidate for term %d\n", r.peerObject.Pid(), r.currentTerm)
 				}
 
@@ -323,6 +341,7 @@ func Runnable(r *RaftBody, HeartBeat int, LowerElectionTO int, UpperElectionTO i
 	}
 }
 
+// Create and return a new raft object
 func AddRaftPeer(id int, config string) Raft {
 
 	type ConfigData struct {
@@ -362,7 +381,6 @@ func AddRaftPeer(id int, config string) Raft {
 	Me.votedFor = 0
 
 	go Runnable(Me, c.HeartBeat, c.LowerElectionTO, c.UpperElectionTO)
-	//go ElectionTimeout(Me)
 
 	return Me
 }
