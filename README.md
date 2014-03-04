@@ -1,7 +1,7 @@
 raft-server
 ===========
 
-A simple raft based cluster server package in golang.
+A simple raft based cluster server package in golang. Under development.
 
 Install
 -------
