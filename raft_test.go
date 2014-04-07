@@ -20,7 +20,8 @@ func TestRaft(t *testing.T) {
 	for i = 1; i <= NUMPEERS; i++ {
 		PeerArray[i-1] = AddRaftPeer(i, "raftConfig.json")
 	}
-
+    
+    println("TESTING BEGINS\n\n")
 	println("\n---------------------Peers Started!-----------------------")
 	println("-------------------Expecting Election---------------------\n")
 
