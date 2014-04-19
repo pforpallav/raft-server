@@ -36,9 +36,39 @@ type Raft interface {
 	// The current leader according to this peer
 	isLeader() bool
 
+	// Mailbox for state machine layer above to send commands of any
+	// kind, and to have them replicated by raft.  If the server is not
+	// the leader, the message will be silently dropped.
+	Outbox() chan<- interface{}
+
+	// Mailbox for state machine layer above to receive commands. These
+	// are guaranteed to have been replicated on a majority
+	Inbox() <-chan *LogItem
+
+	// Remove items from 0 .. index (inclusive), and reclaim disk
+	// space. This is a hint, and there's no guarantee of immediacy since
+	// there may be some servers that are lagging behind).
+	DiscardUpto(index int64)
+
 	// Pause/Unpause - drop messages recieved and to be sent
 	Pause() bool
 	Unpause() bool
+}
+
+// Identifies an entry in the log
+type LogEntry struct{
+	// An index into an abstract 2^64 size array
+	Index  int64
+
+	// The data that was supplied to raft's inbox
+	Data    interface{}
+}
+
+// Statemachine interface
+type SM interface {
+	
+	// Action to execute on the State Machine
+	Execute(action interface{})
 }
 
 //Raft internals
@@ -78,23 +108,23 @@ type RaftBody struct {
 	votedFor int
 
 	// Log
-	//log []interface{}
+	log []LogEntry
 
 	//-----Volatile State-----//
 
 	// Index of highest log entry known to be committed (initialized to 0, increases monotonically)
-	//commitIndex int
+	commitIndex int
 
 	// Index of highest log entry applied to state machine (initialized to 0, increases monotonically)
-	//lastApplied int
+	lastApplied int
 
 	//----Volative State (Leader)----//
 
 	// For each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
-	//nextIndex []int
+	nextIndex []int
 
 	// For each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically
-	//matchIndex []int
+	matchIndex []int
 }
 
 var LeaderChan chan *LeaderInfo //Send singnal if a new leader is elected
